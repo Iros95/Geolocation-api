@@ -142,6 +142,3 @@ def fetch_info_from_database(ip):
 
     finally:
         con.close()
-
-if __name__ == "__main__":
-    app.run()
