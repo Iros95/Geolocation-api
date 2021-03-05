@@ -72,7 +72,6 @@ def add_info():
 
     return jsonify({'message' : f"Geolocation data added for ip address: {ip}"})
 
-# Should be changed to DELETE and implementation should remind get_info method
 @app.route('/delete_info', methods=['POST'])
 def delete_info():
     data = request.get_json()
@@ -81,7 +80,7 @@ def delete_info():
 
     delete_geolocation_info(ip)
 
-    return jsonify({'message' : "Geolocation data removed for ip address: {ip}"})
+    return jsonify({'message' : f"Geolocation data removed for ip address: {ip}"})
 
 @app.route('/get_info', methods=['GET'])
 def get_info():
