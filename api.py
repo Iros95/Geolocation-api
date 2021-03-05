@@ -1,16 +1,33 @@
 import flask
-from flask import request
-from flask import jsonify
+from flask import request, jsonify, session, flash, render_template
+from werkzeug.security import generate_password_hash, check_password_hash
+from functools import wraps
 import sqlite3 as sql
 import urllib.request
+import jwt
+import datetime
 import json
 import socket
-from flask_jwt import JWT
 
 TOKEN = "11457afdfe3ca5de6a418cccad5f373d"
 
 app = flask.Flask(__name__)
+app.config['SECRET_KEY'] = 'JlRlR3GRUl'
 app.config["DEBUG"] = True
+
+def check_for_token(func):
+    @wraps(func)
+    def wrapped(*args, **kwargs):
+        token = request.args.get('token')
+        if not token:
+            return jsonify({'message' : 'Missing token'}), 403
+        try:
+            data = jwt.decode(token, app.config['SECRET_KEY'])
+        except:
+            return jsonify({'message' : 'Invalid token'}), 403
+        return func(*args, **kwargs)
+    return wrapped
+
 
 class BadRequest(Exception):
     def __init__(self, message, status=400, payload=None):
@@ -18,12 +35,26 @@ class BadRequest(Exception):
         self.status = status
         self.payload = payload
 
+@app.route('/login', methods=['POST'])
+def login():
+    request_data = request.get_json()
+    if request_data['username'] and request_data['password'] == 'password':
+        session['logged_in'] = True
+        token = jwt.encode({
+            'user' : request_data['username'],
+            'exp' : datetime.datetime.utcnow() + datetime.timedelta(seconds=1200)
+        },
+        app.config['SECRET_KEY'])
+        return jsonify({'token' : token.decode('utf-8')})
+    else:
+        return make_response('Unable to verify', 403)
 
 @app.errorhandler(BadRequest)
 def handle_bad_request(error):
     payload = dict(error.payload or ())
     payload['status'] = error.status
     payload['message'] = error.message
+
     return jsonify(payload), 400
 
 @app.route('/', methods=['GET'])
@@ -31,6 +62,7 @@ def home():
     return "<h1>Geolocation data storing application</p>"
 
 @app.route('/add_info', methods=['POST'])
+@check_for_token
 def add_info():
     data = request.get_json()
     ip = get_ip_from_request_content(data)
@@ -38,7 +70,7 @@ def add_info():
     geo_info = get_geolocation_info(ip)
     insert_gelocation_info(geo_info)
 
-    return(f"Geolocation data added for ip address: {ip}")
+    return jsonify({'message' : f"Geolocation data added for ip address: {ip}"})
 
 # Should be changed to DELETE and implementation should remind get_info method
 @app.route('/delete_info', methods=['POST'])
@@ -49,7 +81,7 @@ def delete_info():
 
     delete_geolocation_info(ip)
 
-    return(f"Geolocation data removed for ip address: {ip}")
+    return jsonify({'message' : "Geolocation data removed for ip address: {ip}"})
 
 @app.route('/get_info', methods=['GET'])
 def get_info():
@@ -99,11 +131,10 @@ def insert_gelocation_info(info):
                         (ip[0], continent_name, country_name, str(latitude), str(longitude), zip_code))
 
             con.commit()
-            msg = "Record successfully inserted"
 
     except sql.Error as er:
-        print('SQLite error: %s' % (' '.join(er.args)))
-        print("Exception class is: ", er.__class__)
+        msg = 'SQLite error: %s' % (' '.join(er.args))
+        raise BadRequest(msg, 40003, { 'ext': 1 })
 
     finally:
         con.close()
@@ -115,11 +146,10 @@ def delete_geolocation_info(ip):
             cur.execute("DELETE FROM GeolocationInfo WHERE ip = ?", (ip,))
 
             con.commit()
-            msg = "Record successfully inserted"
 
     except sql.Error as er:
-        print('SQLite error: %s' % (' '.join(er.args)))
-        print("Exception class is: ", er.__class__)
+        msg = 'SQLite error: %s' % (' '.join(er.args))
+        raise BadRequest(msg, 40004, { 'ext': 1 })
 
     finally:
         con.close()
@@ -137,8 +167,8 @@ def fetch_info_from_database(ip):
             return result
 
     except sql.Error as er:
-        print('SQLite error: %s' % (' '.join(er.args)))
-        print("Exception class is: ", er.__class__)
+        msg = 'SQLite error: %s' % (' '.join(er.args))
+        raise BadRequest(msg, 40005, { 'ext': 1 })
 
     finally:
         con.close()
